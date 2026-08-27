@@ -1,0 +1,6 @@
+# The corpus IS the vault. Never commit it, never push it.
+data/
+adapters/
+*.gguf
+models/
+*.log
