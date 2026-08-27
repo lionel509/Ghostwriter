@@ -1,23 +1,39 @@
 import { App, Notice, Plugin, PluginSettingTab, Setting, TFile } from "obsidian";
 import { DEFAULT_SETTINGS, type GhostwriterSettings } from "./settings";
 import { OllamaClient } from "./ollama";
-import { ghostKeymap, requestPlugin, suggestionField } from "./ghost";
+import { ghostKeymap, requestPlugin, suggestionField, type Status } from "./ghost";
 
 export default class GhostwriterPlugin extends Plugin {
   cfg!: GhostwriterSettings;
   private client!: OllamaClient;
+  private statusEl: HTMLElement | null = null;
 
   async onload() {
     this.cfg = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.client = new OllamaClient(this.cfg);
 
+    // Without this there is no way to tell "waiting for you to type more" from
+    // "the plugin is dead" — which is exactly the question that came up first.
+    this.statusEl = this.addStatusBarItem();
+    this.setStatus(this.cfg.enabled ? "ready" : "off");
+
     this.registerEditorExtension([
       suggestionField,
       ghostKeymap,
-      requestPlugin(this.client, () => this.cfg, () => this.allowedHere()),
+      requestPlugin(
+        this.client,
+        () => this.cfg,
+        () => this.allowedHere(),
+        (s) => this.setStatus(s),
+      ),
     ]);
 
     this.addSettingTab(new GhostwriterSettingTab(this.app, this));
+    this.addCommand({
+      id: "test-connection",
+      name: "Test connection",
+      callback: async () => new Notice(await this.client.ping(), 6000),
+    });
     this.addCommand({
       id: "toggle",
       name: "Toggle inline completion for this vault",
@@ -27,6 +43,18 @@ export default class GhostwriterPlugin extends Plugin {
         new Notice(`Ghostwriter ${this.cfg.enabled ? "on" : "off"}`);
       },
     });
+  }
+
+  private setStatus(s: Status) {
+    if (!this.statusEl) return;
+    const label: Record<Status, string> = {
+      off: "Ghostwriter: off",
+      ready: "Ghostwriter ✓",
+      thinking: "Ghostwriter …",
+      short: "Ghostwriter: need more text",
+      error: "Ghostwriter: no model",
+    };
+    this.statusEl.setText(label[s]);
   }
 
   onunload() { this.client?.cancel(); }

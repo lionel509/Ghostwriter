@@ -2,6 +2,8 @@ import { SAMPLING, type GhostwriterSettings } from "./settings";
 
 export class OllamaClient {
   private inFlight: AbortController | null = null;
+  /** Distinguishes 'the endpoint is down' from 'the model declined'. */
+  lastFailed = false;
 
   constructor(private settings: GhostwriterSettings) {}
 
@@ -10,6 +12,22 @@ export class OllamaClient {
   cancel(): void {
     this.inFlight?.abort();
     this.inFlight = null;
+  }
+
+  /** Used by the "test connection" command, so a silent plugin can be told
+   *  apart from a stopped Ollama without reading logs. */
+  async ping(): Promise<string> {
+    try {
+      const res = await fetch(`${this.settings.endpoint}/api/tags`);
+      if (!res.ok) return `Ollama replied ${res.status}`;
+      const { models } = (await res.json()) as { models?: { name: string }[] };
+      const names = (models ?? []).map((m) => m.name);
+      return names.includes(this.settings.model)
+        ? `OK — ${this.settings.model} is available`
+        : `Ollama is up, but "${this.settings.model}" is not pulled`;
+    } catch {
+      return `Cannot reach Ollama at ${this.settings.endpoint}`;
+    }
   }
 
   async complete(prefix: string): Promise<string | null> {
@@ -34,13 +52,16 @@ export class OllamaClient {
           options: SAMPLING,
         }),
       });
-      if (!res.ok) return null;
+      this.lastFailed = false;
+      if (!res.ok) { this.lastFailed = true; return null; }
       const data = (await res.json()) as { response?: string };
       const text = this.clean(data.response ?? "");
       if (!text || this.isDegenerate(text) || this.isEcho(text, prefix)) return null;
       return text;
-    } catch {
-      return null; // aborted, or Ollama is not running
+    } catch (e) {
+      // An abort is normal (the user kept typing); anything else is a real fault.
+      this.lastFailed = !(e instanceof DOMException && e.name === "AbortError");
+      return null;
     } finally {
       if (this.inFlight === ac) this.inFlight = null;
     }

@@ -35,7 +35,7 @@ export const DEFAULT_SETTINGS: GhostwriterSettings = {
   debounceMs: 120,
   debounceMidWordMs: 300,
   prefixChars: 500,
-  minPrefixChars: 40,
+  minPrefixChars: 20,
   enabled: false,
   blockedFolders: [],
 };

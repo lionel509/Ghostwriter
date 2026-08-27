@@ -148,10 +148,13 @@ export function buildPrompt(
   return parts.length ? `${parts.join("\n\n")}\n\n${prefix}` : prefix;
 }
 
+export type Status = "off" | "ready" | "thinking" | "short" | "error";
+
 export function requestPlugin(
   client: OllamaClient,
   settings: () => GhostwriterSettings,
   allowed: () => boolean,
+  report: (s: Status) => void,
 ): Extension {
   return ViewPlugin.fromClass(
     class {
@@ -180,7 +183,7 @@ export function requestPlugin(
       private schedule() {
         if (this.timer !== null) window.clearTimeout(this.timer);
         client.cancel();
-        if (!allowed()) return;
+        if (!allowed()) { report("off"); return; }
         // The model answers in ~22 ms, so this timer *is* the perceived latency.
         // Wait longer only mid-word, where the completion is likely to be thrown
         // away anyway; at a word or punctuation boundary, go almost immediately.
@@ -207,7 +210,10 @@ export function requestPlugin(
         // exactly where it degenerates. "the quick brown fox jumped over " in an
         // untitled note produced "10000000000000000000000.".
         const raw = state.doc.sliceString(Math.max(0, head - settings().prefixChars), head);
-        if (raw.replace(/\s+/g, " ").trim().length < settings().minPrefixChars) return;
+        if (raw.replace(/\s+/g, " ").trim().length < settings().minPrefixChars) {
+          report("short");   // otherwise this is indistinguishable from "broken"
+          return;
+        }
 
         const prefix = buildPrompt(state, head, settings().prefixChars);
         if (!prefix.trim()) return;
@@ -217,11 +223,14 @@ export function requestPlugin(
         const hit = this.cache.get(prefix);
         if (hit !== undefined) {
           if (hit) this.view.dispatch({ effects: setSuggestion.of({ text: hit, pos: head }) });
+          report("ready");
           return;
         }
 
+        report("thinking");
         const text = await client.complete(prefix);
         this.remember(prefix, text);
+        report(client.lastFailed ? "error" : "ready");
         if (!text) return;
         // The document may have moved while we waited.
         if (this.view.state.selection.main.head !== head) return;
