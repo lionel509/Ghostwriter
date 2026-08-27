@@ -7,15 +7,21 @@ export interface GhostwriterSettings {
   debounceMs: number;
   /** Longer wait mid-word, where a completion is much likelier to be wasted. */
   debounceMidWordMs: number;
-  /** Quality ladder, measured on real vault notes (resident RAM / typical latency):
-   *    qwen3:0.6b   666 MB   70-110 ms  - fast, and frequently wrong
-   *    qwen3:4b     2.7 GB  250-420 ms  - gets Green's theorem right; the default
-   *  Generation was never the bottleneck (the debounce was), so spend the
-   *  headroom on a model that is actually worth reading.
+  /** Quality ladder, measured on real vault notes (resident / typical latency).
+   *  Completing "The orientation matters because" in a Green's theorem note:
+   *    Qwen3.5-2B-Base  1.6 GB  150-360 ms  "the direction of traversal affects the sign"  <- default
+   *    qwen3:4b         2.7 GB  270-700 ms  "the theorem only holds for counterclockwise curves"
+   *    qwen3.5:4b       3.1 GB  400-1060 ms  best prose of the three, too slow to use
+   *    qwen3:0.6b       666 MB   70-110 ms  "the theorem is a closed curve" - wrong
+   *  The 2B base is smallest, fastest AND best here: base weights continue text,
+   *  instruct weights answer questions, and this is a continuation task.
    *
    *  Characters of note text sent as the prefix. ~500 is the measured floor;
    *  a one-sentence prefix degrades output badly. */
   prefixChars: number;
+  /** Below this much real text before the cursor, do not ask at all. With almost
+   *  no context the model degenerates rather than declining. */
+  minPrefixChars: number;
   /** Vaults are opt-in. Never enable this in a vault you would not send to a
    *  process outside Obsidian — and it must stay off in Vanguard. */
   enabled: boolean;
@@ -25,10 +31,11 @@ export interface GhostwriterSettings {
 
 export const DEFAULT_SETTINGS: GhostwriterSettings = {
   endpoint: "http://localhost:11434",
-  model: "qwen3:4b",
+  model: "hf.co/mradermacher/Qwen3.5-2B-Base-GGUF:Q4_K_M",
   debounceMs: 120,
   debounceMidWordMs: 300,
   prefixChars: 500,
+  minPrefixChars: 40,
   enabled: false,
   blockedFolders: [],
 };

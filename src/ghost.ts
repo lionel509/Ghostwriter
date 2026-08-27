@@ -203,6 +203,12 @@ export function requestPlugin(
         if (!state.selection.main.empty) return;
         if (completionStatus(state) !== null) return;
 
+        // A nearly-empty note gives the model nothing to work with, and that is
+        // exactly where it degenerates. "the quick brown fox jumped over " in an
+        // untitled note produced "10000000000000000000000.".
+        const raw = state.doc.sliceString(Math.max(0, head - settings().prefixChars), head);
+        if (raw.replace(/\s+/g, " ").trim().length < settings().minPrefixChars) return;
+
         const prefix = buildPrompt(state, head, settings().prefixChars);
         if (!prefix.trim()) return;
 

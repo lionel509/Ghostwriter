@@ -37,7 +37,7 @@ export class OllamaClient {
       if (!res.ok) return null;
       const data = (await res.json()) as { response?: string };
       const text = this.clean(data.response ?? "");
-      if (!text || this.isEcho(text, prefix)) return null;
+      if (!text || this.isDegenerate(text) || this.isEcho(text, prefix)) return null;
       return text;
     } catch {
       return null; // aborted, or Ollama is not running
@@ -55,6 +55,20 @@ export class OllamaClient {
     if (!t.trim()) return null;
     if (!/[.!?:;,]$/.test(t)) t += ".";
     return t;
+  }
+
+  /** Reject degenerate output — "10000000000000000000000.", a token the model
+   *  latched onto and could not leave. repeat_penalty does not catch this
+   *  because each digit is cheap and the run is inside one "word". */
+  private isDegenerate(text: string): boolean {
+    const t = text.trim();
+    if (t.length < 6) return false;
+    if (/(.)\1{5,}/.test(t)) return true;                    // aaaaaa / 000000
+    const uniq = new Set(t.replace(/[\s.]/g, "")).size;
+    if (t.length >= 10 && uniq <= 2) return true;            // 1010101010
+    const words = t.toLowerCase().split(/\s+/).filter(Boolean);
+    if (words.length >= 4 && new Set(words).size <= words.length / 2) return true;
+    return false;
   }
 
   /** Reject a completion that just replays text already on screen.
