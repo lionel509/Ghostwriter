@@ -1,9 +1,19 @@
 export interface GhostwriterSettings {
   endpoint: string;
   model: string;
-  /** ms of quiet after the last keystroke before a request goes out. */
+  /** ms of quiet after a word/punctuation boundary before requesting. The model
+   *  itself takes ~22 ms, so this number *is* the perceived latency — at the old
+   *  350 ms default it was 94% of it. */
   debounceMs: number;
-  /** Characters of note text sent as the prefix. ~500 is the measured floor;
+  /** Longer wait mid-word, where a completion is much likelier to be wasted. */
+  debounceMidWordMs: number;
+  /** Quality ladder, measured on real vault notes (resident RAM / typical latency):
+   *    qwen3:0.6b   666 MB   70-110 ms  - fast, and frequently wrong
+   *    qwen3:4b     2.7 GB  250-420 ms  - gets Green's theorem right; the default
+   *  Generation was never the bottleneck (the debounce was), so spend the
+   *  headroom on a model that is actually worth reading.
+   *
+   *  Characters of note text sent as the prefix. ~500 is the measured floor;
    *  a one-sentence prefix degrades output badly. */
   prefixChars: number;
   /** Vaults are opt-in. Never enable this in a vault you would not send to a
@@ -15,8 +25,9 @@ export interface GhostwriterSettings {
 
 export const DEFAULT_SETTINGS: GhostwriterSettings = {
   endpoint: "http://localhost:11434",
-  model: "qwen3:0.6b",
-  debounceMs: 350,
+  model: "qwen3:4b",
+  debounceMs: 120,
+  debounceMidWordMs: 300,
   prefixChars: 500,
   enabled: false,
   blockedFolders: [],

@@ -106,6 +106,48 @@ export const ghostKeymap = Prec.highest(
   ]),
 );
 
+
+/** The raw text before the cursor does not say what the note is *about*. Given
+ *  only "...it stops the cooking and", the model answered "makes sure the dish
+ *  is clean"; given the note's title and tags too, it answered "keeps the
+ *  noodles from getting mushy". Prefill for the extra ~200 chars costs ~8 ms.
+ *
+ *  Everything here comes from the document itself, so this stays a pure
+ *  CodeMirror extension with no dependency on the Obsidian app object. */
+export function buildPrompt(
+  state: { doc: { sliceString(a: number, b: number): string; length: number } },
+  head: number,
+  prefixChars: number,
+): string {
+  const from = Math.max(0, head - prefixChars);
+  const prefix = state.doc.sliceString(from, head);
+  if (from === 0) return prefix;                    // header is already in view
+
+  const top = state.doc.sliceString(0, Math.min(600, state.doc.length));
+  const parts: string[] = [];
+
+  // YAML frontmatter: the tag block is a closed vocabulary per vault and is the
+  // cheapest signal available for what kind of note this is.
+  const fm = /^---\n([\s\S]*?)\n---/.exec(top);
+  if (fm) parts.push(`---\n${fm[1]}\n---`);
+
+  // The title, and the nearest heading above the cursor.
+  const title = /^#\s+(.+)$/m.exec(fm ? top.slice(fm[0].length) : top);
+  if (title) parts.push(`# ${title[1].trim()}`);
+  // Only reach backwards for a heading when the prefix window does not already
+  // contain one — otherwise we prepend a stale section ("## Ingredients") while
+  // the cursor is plainly under a newer one ("## Steps").
+  if (!/^#{1,6}\s+.+$/m.test(prefix)) {
+    const headings = state.doc.sliceString(0, from).match(/^#{1,6}\s+.+$/gm);
+    if (headings?.length) {
+      const last = headings[headings.length - 1].trim();
+      if (!parts.some((p) => p.includes(last))) parts.push(last);
+    }
+  }
+
+  return parts.length ? `${parts.join("\n\n")}\n\n${prefix}` : prefix;
+}
+
 export function requestPlugin(
   client: OllamaClient,
   settings: () => GhostwriterSettings,
@@ -114,8 +156,18 @@ export function requestPlugin(
   return ViewPlugin.fromClass(
     class {
       private timer: number | null = null;
+      /** Small bounded LRU of prefix -> completion (null = model declined). */
+      private cache = new Map<string, string | null>();
 
       constructor(private view: EditorView) {}
+
+      private remember(prefix: string, text: string | null) {
+        this.cache.set(prefix, text);
+        if (this.cache.size > 200) {
+          const oldest = this.cache.keys().next().value;
+          if (oldest !== undefined) this.cache.delete(oldest);
+        }
+      }
 
       update(u: ViewUpdate) {
         if (!u.docChanged && !u.selectionSet) return;
@@ -129,9 +181,20 @@ export function requestPlugin(
         if (this.timer !== null) window.clearTimeout(this.timer);
         client.cancel();
         if (!allowed()) return;
-        // Debouncing is not added delay — it aims the request at the 300-800ms
-        // pause a writer already takes at a word or clause boundary.
-        this.timer = window.setTimeout(() => void this.fire(), settings().debounceMs);
+        // The model answers in ~22 ms, so this timer *is* the perceived latency.
+        // Wait longer only mid-word, where the completion is likely to be thrown
+        // away anyway; at a word or punctuation boundary, go almost immediately.
+        const s = settings();
+        this.timer = window.setTimeout(
+          () => void this.fire(),
+          this.atBoundary() ? s.debounceMs : s.debounceMidWordMs,
+        );
+      }
+
+      private atBoundary(): boolean {
+        const st = this.view.state;
+        const head = st.selection.main.head;
+        return head === 0 || /[\s.,;:!?)\]}"'—-]$/.test(st.doc.sliceString(head - 1, head));
       }
 
       private async fire() {
@@ -140,12 +203,19 @@ export function requestPlugin(
         if (!state.selection.main.empty) return;
         if (completionStatus(state) !== null) return;
 
-        const prefix = state.doc.sliceString(
-          Math.max(0, head - settings().prefixChars), head,
-        );
+        const prefix = buildPrompt(state, head, settings().prefixChars);
         if (!prefix.trim()) return;
 
+        // Backspace-and-retype lands on a prefix we have already answered.
+        // Serving it from memory costs nothing and is genuinely instant.
+        const hit = this.cache.get(prefix);
+        if (hit !== undefined) {
+          if (hit) this.view.dispatch({ effects: setSuggestion.of({ text: hit, pos: head }) });
+          return;
+        }
+
         const text = await client.complete(prefix);
+        this.remember(prefix, text);
         if (!text) return;
         // The document may have moved while we waited.
         if (this.view.state.selection.main.head !== head) return;
