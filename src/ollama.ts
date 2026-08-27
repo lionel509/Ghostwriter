@@ -92,18 +92,30 @@ export class OllamaClient {
     return false;
   }
 
-  /** Reject a completion that just replays text already on screen.
-   *  Repetitive input makes the model continue the pattern faithfully, which is
-   *  correct behaviour and a useless suggestion — sampling cannot fix it because
-   *  the loop is in the prefix, not the sampler. */
-  private isEcho(text: string, prefix: string): boolean {
+  /** Reject a completion that replays text already on screen, or itself.
+   *  Exact-substring matching was not enough: with "…brown fox jumps over the
+   *  lazy dog." on screen it happily suggested "The fox jumps over the lazy
+   *  dog." — different by one word, identical to read. Shared word 4-grams
+   *  catch that while leaving genuine repetition alone ("the integral is a line
+   *  integral, not a surface integral"). */
+  private isEcho(text: string, prefix: string, n = 4): boolean {
     const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    const t = norm(text);
-    if (t.length < 8) return false;
-    const tail = norm(prefix.slice(-400));
-    if (tail.includes(t)) return true;
-    // Also catch a suggestion that repeats itself: "X and X".
-    const half = t.slice(0, Math.floor(t.length / 2)).trim();
-    return half.length >= 8 && t.slice(half.length).includes(half);
+    const t = norm(text).split(" ").filter(Boolean);
+    const p = norm(prefix.slice(-600));
+    if (t.length < n) return norm(text).length >= 8 && p.includes(norm(text));
+
+    const inPrefix = new Set<string>();
+    const words = p.split(" ").filter(Boolean);
+    for (let i = 0; i + n <= words.length; i++) inPrefix.add(words.slice(i, i + n).join(" "));
+    for (let i = 0; i + n <= t.length; i++) {
+      if (inPrefix.has(t.slice(i, i + n).join(" "))) return true;
+    }
+    const self = new Set<string>();
+    for (let i = 0; i + n <= t.length; i++) {
+      const g = t.slice(i, i + n).join(" ");
+      if (self.has(g)) return true;
+      self.add(g);
+    }
+    return false;
   }
 }

@@ -19,8 +19,10 @@ export interface GhostwriterSettings {
    *  Characters of note text sent as the prefix. ~500 is the measured floor;
    *  a one-sentence prefix degrades output badly. */
   prefixChars: number;
-  /** Below this much real text before the cursor, do not ask at all. With almost
-   *  no context the model degenerates rather than declining. */
+  /** 0 = no gate, the default: the model may propose the next sentence from
+   *  almost nothing if it wants to. Bad output is rejected on its merits by the
+   *  degenerate and echo guards rather than pre-empted by a character count.
+   *  Raise it only to cut requests, never to improve quality. */
   minPrefixChars: number;
   /** Vaults are opt-in. Never enable this in a vault you would not send to a
    *  process outside Obsidian — and it must stay off in Vanguard. */
@@ -35,7 +37,7 @@ export const DEFAULT_SETTINGS: GhostwriterSettings = {
   debounceMs: 120,
   debounceMidWordMs: 300,
   prefixChars: 500,
-  minPrefixChars: 20,
+  minPrefixChars: 0,
   enabled: false,
   blockedFolders: [],
 };

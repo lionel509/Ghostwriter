@@ -206,13 +206,13 @@ export function requestPlugin(
         if (!state.selection.main.empty) return;
         if (completionStatus(state) !== null) return;
 
-        // A nearly-empty note gives the model nothing to work with, and that is
-        // exactly where it degenerates. "the quick brown fox jumped over " in an
-        // untitled note produced "10000000000000000000000.".
-        const raw = state.doc.sliceString(Math.max(0, head - settings().prefixChars), head);
-        if (raw.replace(/\s+/g, " ").trim().length < settings().minPrefixChars) {
-          report("short");   // otherwise this is indistinguishable from "broken"
-          return;
+        // No length gate: the model is allowed to propose the next sentence from
+        // almost nothing if it wants to. Bad output is rejected on its merits by
+        // the degenerate and echo guards, not pre-empted by a character count.
+        const min = settings().minPrefixChars;
+        if (min > 0) {
+          const raw = state.doc.sliceString(Math.max(0, head - settings().prefixChars), head);
+          if (raw.replace(/\s+/g, " ").trim().length < min) { report("short"); return; }
         }
 
         const prefix = buildPrompt(state, head, settings().prefixChars);
