@@ -4,6 +4,10 @@ export class OllamaClient {
   private inFlight: AbortController | null = null;
   /** Distinguishes 'the endpoint is down' from 'the model declined'. */
   lastFailed = false;
+  /** Set when the last call was cancelled by the next keystroke rather than
+   *  answered. A cancelled call learned nothing about the prefix, so the caller
+   *  must not remember it as "no completion here". */
+  lastAborted = false;
 
   constructor(private settings: GhostwriterSettings) {}
 
@@ -32,6 +36,7 @@ export class OllamaClient {
 
   async complete(prefix: string): Promise<string | null> {
     this.cancel();
+    this.lastAborted = false;
     const ac = new AbortController();
     this.inFlight = ac;
     try {
@@ -62,7 +67,8 @@ export class OllamaClient {
       return text;
     } catch (e) {
       // An abort is normal (the user kept typing); anything else is a real fault.
-      this.lastFailed = !(e instanceof DOMException && e.name === "AbortError");
+      this.lastAborted = e instanceof DOMException && e.name === "AbortError";
+      this.lastFailed = !this.lastAborted;
       return null;
     } finally {
       if (this.inFlight === ac) this.inFlight = null;

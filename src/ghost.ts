@@ -45,20 +45,40 @@ export const suggestionField = StateField.define<Suggestion | null>({
     if (completionStatus(tr.state) !== null) return null;
 
     if (tr.docChanged) {
+      // Not every document change is the user typing. Lecture Ears appends a
+      // live transcript to the very note he is writing in; treating those
+      // appends as typing threw the suggestion away every time one landed.
+      // Classify the changes against the anchor instead of assuming.
+      let typed = "";
+      let insertsAtAnchor = 0;
+      let clobbersAnchor = false;
+      tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+        if (fromA === value.pos && toA === value.pos) {
+          insertsAtAnchor++;
+          typed += inserted.toString();
+        } else if (fromA < value.pos && toA >= value.pos) {
+          clobbersAnchor = true;      // an edit that spans or eats the anchor
+        }
+      });
+      if (clobbersAnchor) return null;
+
+      // mapPos follows the anchor through edits made anywhere in the document,
+      // which is what keeps the ghost text pinned to the cursor while text is
+      // being appended above or below it.
+      const pos = tr.changes.mapPos(value.pos, 1);
+
+      // Nothing was typed at the anchor — someone else wrote to the note.
+      // Follow the anchor and leave the suggestion standing.
+      if (insertsAtAnchor === 0) return pos === value.pos ? value : { text: value.text, pos };
+
       // PREFIX ADVANCEMENT — the single biggest perceived-latency win.
       // If the user typed exactly what was predicted, trim the accepted
       // characters and re-render. No request, no network, no wait: they are
       // typing into a suggestion that already exists.
-      let typed = "";
-      let simpleInsertAtCursor = true;
-      tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
-        if (fromA !== value.pos || toA !== value.pos) simpleInsertAtCursor = false;
-        typed += inserted.toString();
-      });
-      if (!simpleInsertAtCursor || !typed) return null;
+      if (!typed) return null;
       if (!value.text.startsWith(typed)) return null;     // diverged — drop it
       const rest = value.text.slice(typed.length);
-      return rest ? { text: rest, pos: value.pos + typed.length } : null;
+      return rest ? { text: rest, pos } : null;
     }
 
     // Any cursor move away from the anchor invalidates the suggestion.
@@ -177,7 +197,25 @@ export function requestPlugin(
         // The field already advanced the ghost text for a matching keystroke;
         // asking again for the same prediction would be pure waste.
         if (u.state.field(suggestionField, false)) return;
+        // schedule() cancels whatever is in the air. Doing that for a write
+        // that is not the user's means a note being appended to from outside —
+        // a lecture transcript, a sync — never completes a request at all.
+        if (!this.isUserEdit(u)) return;
         this.schedule();
+      }
+
+      /** True when this update is the user acting at the cursor, as opposed to
+       *  another plugin writing elsewhere in the same note. */
+      private isUserEdit(u: ViewUpdate): boolean {
+        const before = u.startState.selection.main.head;
+        const after = u.state.selection.main.head;
+        if (!u.docChanged) return after !== before;
+        if (u.changes.mapPos(before, 1) !== after) return true;   // cursor moved
+        let atCursor = false;
+        u.changes.iterChanges((fromA, toA) => {
+          if (fromA <= before && toA >= before) atCursor = true;
+        });
+        return atCursor;
       }
 
       private schedule() {
@@ -229,6 +267,12 @@ export function requestPlugin(
 
         report("thinking");
         const text = await client.complete(prefix);
+        // An aborted request answered nothing. Caching that as "no completion
+        // for this prefix" poisons it for the rest of the session — and while
+        // typing at speed almost every request is aborted by the next
+        // keystroke, so the cache filled up with false negatives and the plugin
+        // went quiet exactly where it had already been asked.
+        if (client.lastAborted) return;
         this.remember(prefix, text);
         report(client.lastFailed ? "error" : "ready");
         if (!text) return;
