@@ -1,4 +1,13 @@
+/** Models that were the default at some point and have since been superseded.
+ *  data.json overrides DEFAULT_SETTINGS, so without this a saved value keeps a
+ *  user pinned to a model they never chose — which is exactly what happened:
+ *  the default moved 0.6b -> 4b -> Qwen3.5-2B-Base and the saved "qwen3:0.6b"
+ *  silently won every time. */
+export const SUPERSEDED_MODELS = ["qwen3:0.6b", "qwen3:4b", "llama3.2:1b-text-q4_K_M"];
+
 export interface GhostwriterSettings {
+  /** Bumped when a default changes in a way that should reach existing installs. */
+  settingsVersion?: number;
   endpoint: string;
   model: string;
   /** ms of quiet after a word/punctuation boundary before requesting. The model
@@ -31,7 +40,10 @@ export interface GhostwriterSettings {
   blockedFolders: string[];
 }
 
+export const SETTINGS_VERSION = 2;
+
 export const DEFAULT_SETTINGS: GhostwriterSettings = {
+  settingsVersion: SETTINGS_VERSION,
   endpoint: "http://localhost:11434",
   model: "hf.co/mradermacher/Qwen3.5-2B-Base-GGUF:Q4_K_M",
   debounceMs: 120,

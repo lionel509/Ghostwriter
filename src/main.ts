@@ -1,5 +1,8 @@
 import { App, Notice, Plugin, PluginSettingTab, Setting, TFile } from "obsidian";
-import { DEFAULT_SETTINGS, type GhostwriterSettings } from "./settings";
+import {
+  DEFAULT_SETTINGS, SETTINGS_VERSION, SUPERSEDED_MODELS,
+  type GhostwriterSettings,
+} from "./settings";
 import { OllamaClient } from "./ollama";
 import { ghostKeymap, requestPlugin, suggestionField, type Status } from "./ghost";
 
@@ -10,6 +13,7 @@ export default class GhostwriterPlugin extends Plugin {
 
   async onload() {
     this.cfg = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    await this.migrate();
     this.client = new OllamaClient(this.cfg);
 
     // Without this there is no way to tell "waiting for you to type more" from
@@ -55,6 +59,20 @@ export default class GhostwriterPlugin extends Plugin {
       error: "Ghostwriter: no model",
     };
     this.statusEl.setText(label[s]);
+  }
+
+  /** Move an install off a model that used to be the default. Only touches a
+   *  value that matches a known old default — a model the user actually chose
+   *  is never overwritten. */
+  private async migrate() {
+    if ((this.cfg.settingsVersion ?? 0) >= SETTINGS_VERSION) return;
+    const old = this.cfg.model;
+    if (SUPERSEDED_MODELS.includes(old)) {
+      this.cfg.model = DEFAULT_SETTINGS.model;
+      new Notice(`Ghostwriter: model updated ${old} → ${this.cfg.model}`, 8000);
+    }
+    this.cfg.settingsVersion = SETTINGS_VERSION;
+    await this.saveSettings();
   }
 
   onunload() { this.client?.cancel(); }
