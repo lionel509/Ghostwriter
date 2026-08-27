@@ -56,7 +56,9 @@ export class OllamaClient {
       if (!res.ok) { this.lastFailed = true; return null; }
       const data = (await res.json()) as { response?: string };
       const text = this.clean(data.response ?? "");
-      if (!text || this.isDegenerate(text) || this.isEcho(text, prefix)) return null;
+      if (!text) return null;
+      if (this.isDegenerate(text) || this.isJunkNumeric(text)) return null;
+      if (this.isEcho(text, prefix)) return null;
       return text;
     } catch (e) {
       // An abort is normal (the user kept typing); anything else is a real fault.
@@ -89,6 +91,22 @@ export class OllamaClient {
     if (t.length >= 10 && uniq <= 2) return true;            // 1010101010
     const words = t.toLowerCase().split(/\s+/).filter(Boolean);
     if (words.length >= 4 && new Set(words).size <= words.length / 2) return true;
+    return false;
+  }
+
+  /** Reject numeric junk. Base models continue raw web text, where a bare
+   *  fragment statistically leads to dates, scores and list numbering — measured
+   *  at 6/7 and 7/7 across two model families, and 7/7 on an instruct model too
+   *  (raw:true bypasses the chat template, so instruct tuning never engages).
+   *  No model choice fixes this; it has to be rejected on the way out.
+   *
+   *  Numbers in the vault are legitimate ("3 tbsp sesame paste", "$2.21 a
+   *  lunch"), so the rule is about numbers standing *alone*, not numbers. */
+  private isJunkNumeric(text: string): boolean {
+    const t = text.trim();
+    const alpha = t.match(/[A-Za-z\u00C0-\u024F]{2,}/g) ?? [];
+    if (alpha.length === 0) return true;                      // "3000." "100%" "2018-10-13"
+    if (/^[\W]*\d/.test(t) && alpha.length < 3) return true;  // "3D printing" "2019 - YouTube"
     return false;
   }
 
