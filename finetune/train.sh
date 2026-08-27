@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 
 VENV="${MLX_VENV:-/private/tmp/claude-501/-Users-lionelweng-Documents/ed7f4a85-be0b-4507-8b92-a745bc0cc413/scratchpad/mlxenv/bin}"
 MODEL="${MODEL:-./models/qwen35-2b-base-4bit}"
-ITERS="${ITERS:-600}"
+ITERS="${ITERS:-1500}"
 
 [ -f data/train.jsonl ] || { echo "No corpus. Run: python3 build_corpus.py --out data"; exit 1; }
 
@@ -20,8 +20,8 @@ ITERS="${ITERS:-600}"
   --iters "$ITERS" \
   --batch-size 1 \
   --num-layers 8 \
-  --max-seq-length 1024 \
-  --learning-rate 1e-5 \
+  --max-seq-length 512 \
+  --learning-rate 1e-4 \
   --steps-per-report 25 \
   --steps-per-eval 100 \
   --adapter-path adapters \

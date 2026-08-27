@@ -9,12 +9,22 @@ NAME="${NAME:-ghostwriter-vault}"
 
 [ -d adapters ] || { echo "No adapters/. Run ./train.sh first."; exit 1; }
 
-echo "1/3 fusing adapter into base weights"
+# NOTE: mlx_lm cannot export this architecture to GGUF —
+#   ValueError: Model type qwen3_5 not supported for GGUF conversion
+# so the MLX -> Ollama handoff does not work for Qwen3.5 yet. The fuse still
+# produces a usable MLX model; serve it with mlx_lm.server (OpenAI-compatible)
+# until llama.cpp/mlx gain qwen3_5 GGUF support, or retrain on an architecture
+# that converts (Qwen3, Llama 3.2).
+echo "1/2 fusing adapter into base weights (MLX format, no GGUF)"
 "$VENV/python" -m mlx_lm fuse \
   --model ./models/qwen35-2b-base-4bit \
   --adapter-path adapters \
-  --save-path ./models/fused \
-  --export-gguf --gguf-path ./models/fused/ggml-model-f16.gguf
+  --save-path ./models/fused
+
+echo "2/2 serve it with:"
+echo "  $VENV/python -m mlx_lm server --model ./models/fused --port 8080"
+echo "  then point Ghostwriter at http://localhost:8080 (OpenAI-compatible)"
+exit 0
 
 echo "2/3 writing Modelfile"
 cat > models/Modelfile <<MF
