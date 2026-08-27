@@ -1,0 +1,10 @@
+{
+  "id": "ghostwriter",
+  "name": "Ghostwriter",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Copilot-style inline completion. A local model finishes the sentence in grey; Tab accepts.",
+  "author": "lionel509",
+  "authorUrl": "https://github.com/lionel509",
+  "isDesktopOnly": true
+}
