@@ -2,3 +2,6 @@ node_modules/
 main.js
 *.log
 Ghostwriter — Project Hub.md
+
+# graphify output — rebuilt with `graphify update .`, never versioned
+graphify-out/
