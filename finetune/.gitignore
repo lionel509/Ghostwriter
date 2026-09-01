@@ -1,6 +1,7 @@
 # The corpus IS the vault. Never commit it, never push it.
 data/
-adapters*/          # widened 2026-08-31: 'adapters/' never matched 'adapters-run1-lr1e-5/'
+# widened 2026-08-31: 'adapters/' never matched the real dir 'adapters-run1-lr1e-5/'
+adapters*/
 *.gguf
 models/
 *.log
