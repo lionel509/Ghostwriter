@@ -168,7 +168,14 @@ export function buildPrompt(
   return parts.length ? `${parts.join("\n\n")}\n\n${prefix}` : prefix;
 }
 
-export type Status = "off" | "ready" | "thinking" | "short" | "error";
+/** "ready" used to cover both "grey text is on screen" and "the model had
+ *  nothing" — which made a working plugin and a dead one look identical from
+ *  the status bar, and is why silence got reported as breakage. Split them. */
+export type Status =
+  | "off" | "ready" | "thinking" | "short" | "error"
+  | "showing"   // a suggestion is rendered right now
+  | "quiet"     // answered, but declined or rejected by the guards
+  | "late";     // answered after the cursor moved on, so it was dropped
 
 export function requestPlugin(
   client: OllamaClient,
@@ -194,6 +201,10 @@ export function requestPlugin(
 
       update(u: ViewUpdate) {
         if (!u.docChanged && !u.selectionSet) return;
+        // The ghost text just went away (accepted, dismissed, or invalidated).
+        // Without this the bar would sit on "suggesting" with nothing on screen.
+        if (u.startState.field(suggestionField, false) &&
+            !u.state.field(suggestionField, false)) report("ready");
         // The field already advanced the ghost text for a matching keystroke;
         // asking again for the same prediction would be pure waste.
         if (u.state.field(suggestionField, false)) return;
@@ -261,7 +272,7 @@ export function requestPlugin(
         const hit = this.cache.get(prefix);
         if (hit !== undefined) {
           if (hit) this.view.dispatch({ effects: setSuggestion.of({ text: hit, pos: head }) });
-          report("ready");
+          report(hit ? "showing" : "quiet");
           return;
         }
 
@@ -274,11 +285,15 @@ export function requestPlugin(
         // went quiet exactly where it had already been asked.
         if (client.lastAborted) return;
         this.remember(prefix, text);
-        report(client.lastFailed ? "error" : "ready");
-        if (!text) return;
+        if (client.lastFailed) { report("error"); return; }
+        // Declining is normal and frequent — at a line end, mid-word, or inside
+        // a table cell of LaTeX the model mostly has nothing to add. Say so,
+        // rather than reporting the same "ready" as a live suggestion.
+        if (!text) { report("quiet"); return; }
         // The document may have moved while we waited.
-        if (this.view.state.selection.main.head !== head) return;
+        if (this.view.state.selection.main.head !== head) { report("late"); return; }
         this.view.dispatch({ effects: setSuggestion.of({ text, pos: head }) });
+        report("showing");
       }
 
       destroy() {

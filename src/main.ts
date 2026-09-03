@@ -55,6 +55,9 @@ export default class GhostwriterPlugin extends Plugin {
       off: "Ghostwriter: off",
       ready: "Ghostwriter ✓",
       thinking: "Ghostwriter …",
+      showing: "Ghostwriter ▸ suggesting",
+      quiet: "Ghostwriter: nothing to add",
+      late: "Ghostwriter: too slow, dropped",
       short: "Ghostwriter: need more text",
       error: "Ghostwriter: no model",
     };
