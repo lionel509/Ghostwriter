@@ -38,6 +38,13 @@ export interface GhostwriterSettings {
   enabled: boolean;
   /** Folders (vault-relative prefixes) that never get completions. */
   blockedFolders: string[];
+  /** How long Ollama holds the weights after answering.
+   *    -1    pin for as long as the vault is open  (default — fastest)
+   *    "10m" release after ten idle minutes        (occasional use)
+   *    0     never keep resident                   (a cold load per sentence)
+   *  -1 is only defensible because onunload now releases the model. Before that
+   *  it meant "resident until you quit Ollama", which outlived the vault by days. */
+  keepAlive: number | string;
 }
 
 export const SETTINGS_VERSION = 2;
@@ -52,6 +59,7 @@ export const DEFAULT_SETTINGS: GhostwriterSettings = {
   minPrefixChars: 0,
   enabled: false,
   blockedFolders: [],
+  keepAlive: -1,
 };
 
 /** Measured on an M2 Pro: repeat_penalty 1.05 suppresses the prose repetition

@@ -173,6 +173,7 @@ export function buildPrompt(
  *  the status bar, and is why silence got reported as breakage. Split them. */
 export type Status =
   | "off" | "ready" | "thinking" | "short" | "error"
+  | "warming"   // weights are loading; the first request would block on this
   | "showing"   // a suggestion is rendered right now
   | "quiet"     // answered, but declined or rejected by the guards
   | "late";     // answered after the cursor moved on, so it was dropped

@@ -9,7 +9,52 @@ export class OllamaClient {
    *  must not remember it as "no completion here". */
   lastAborted = false;
 
+  /** The model name currently resident, which is not always settings.model —
+   *  the user can rename it in settings while the old weights are still loaded.
+   *  release() has to unload what is in memory, not what is in the config. */
+  private warmed: string | null = null;
+
   constructor(private settings: GhostwriterSettings) {}
+
+  /** Load the weights without generating. Ollama treats a request with no
+   *  prompt as load-only and answers done_reason:"load". Called at vault open so
+   *  the cold load lands while the window is still painting, not mid-sentence. */
+  async warm(): Promise<boolean> {
+    const model = this.settings.model;
+    try {
+      const res = await fetch(`${this.settings.endpoint}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model, keep_alive: this.settings.keepAlive }),
+      });
+      if (res.ok) this.warmed = model;
+      this.lastFailed = !res.ok;
+      return res.ok;
+    } catch {
+      this.lastFailed = true;
+      return false;
+    }
+  }
+
+  /** Hand the memory back. keep_alive:0 evicts immediately instead of waiting
+   *  out an idle timer that keep_alive:-1 does not have.
+   *  fetch keepalive:true matters here: onunload fires while Obsidian is tearing
+   *  the window down, and a normal fetch would be cancelled before it is sent. */
+  async release(): Promise<void> {
+    const model = this.warmed;
+    if (!model) return;
+    this.warmed = null;
+    try {
+      await fetch(`${this.settings.endpoint}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        keepalive: true,
+        body: JSON.stringify({ model, keep_alive: 0 }),
+      });
+    } catch {
+      // Ollama already stopped reaches the same end state: not resident.
+    }
+  }
 
   /** Cancel whatever is in the air. Called on every keystroke — a completion
    *  for a prefix the user has already moved past is worthless. */
@@ -51,14 +96,15 @@ export class OllamaClient {
           // with the template applied to a bare prefix the model returns "".
           raw: true,
           stream: false,
-          // -1 pins the model. Cold load is seconds; paying it mid-sentence
-          // after every pause is what would make this feel broken.
-          keep_alive: -1,
+          keep_alive: this.settings.keepAlive,
           options: SAMPLING,
         }),
       });
       this.lastFailed = false;
       if (!res.ok) { this.lastFailed = true; return null; }
+      // Answering a request is also what loads the model, so completion is a
+      // second way in. Record it, or release() later has nothing to unload.
+      this.warmed = this.settings.model;
       const data = (await res.json()) as { response?: string };
       const text = this.clean(data.response ?? "");
       if (!text) return null;

@@ -8,7 +8,9 @@ import { ghostKeymap, requestPlugin, suggestionField, type Status } from "./ghos
 
 export default class GhostwriterPlugin extends Plugin {
   cfg!: GhostwriterSettings;
-  private client!: OllamaClient;
+  /** Public so the settings tab can hand the weights back when the model or the
+   *  on/off switch changes. */
+  client!: OllamaClient;
   private statusEl: HTMLElement | null = null;
 
   async onload() {
@@ -42,17 +44,44 @@ export default class GhostwriterPlugin extends Plugin {
       id: "toggle",
       name: "Toggle inline completion for this vault",
       callback: async () => {
-        this.cfg.enabled = !this.cfg.enabled;
-        await this.saveSettings();
+        await this.setEnabled(!this.cfg.enabled);
         new Notice(`Ghostwriter ${this.cfg.enabled ? "on" : "off"}`);
       },
     });
+
+    // The model's life starts with the vault. Obsidian runs onload when this
+    // vault opens, so the 1.6 GB load happens while the window is still
+    // painting rather than on the first keystroke of the first sentence.
+    // Deliberately not awaited — a slow load must not hold up vault startup.
+    if (this.cfg.enabled) void this.warmUp();
+  }
+
+  /** Load the weights and say so. Without the "warming" state the status bar
+   *  showed a confident tick while the first request was still blocked behind a
+   *  multi-second load. */
+  async warmUp() {
+    this.setStatus("warming");
+    const ok = await this.client.warm();
+    this.setStatus(ok ? "ready" : "error");
+  }
+
+  /** The on/off switch owns residency. Until now "off" cost exactly as much
+   *  memory as "on" — the plugin stopped asking for completions but never told
+   *  Ollama it was done, so the weights stayed pinned. */
+  async setEnabled(v: boolean) {
+    this.cfg.enabled = v;
+    await this.saveSettings();
+    if (v) { await this.warmUp(); return; }
+    this.client.cancel();
+    await this.client.release();
+    this.setStatus("off");
   }
 
   private setStatus(s: Status) {
     if (!this.statusEl) return;
     const label: Record<Status, string> = {
       off: "Ghostwriter: off",
+      warming: "Ghostwriter: loading model…",
       ready: "Ghostwriter ✓",
       thinking: "Ghostwriter …",
       showing: "Ghostwriter ▸ suggesting",
@@ -78,7 +107,13 @@ export default class GhostwriterPlugin extends Plugin {
     await this.saveSettings();
   }
 
-  onunload() { this.client?.cancel(); }
+  /** Fires when this vault closes: quit, vault switch, or the plugin being
+   *  disabled. keep_alive:-1 means nothing else will ever evict the model, so
+   *  this call is the only thing bounding its lifetime to the vault's. */
+  onunload() {
+    this.client?.cancel();
+    void this.client?.release();
+  }
 
   /** Off unless this vault was explicitly enabled, and never inside a blocked
    *  folder. Every completion sends a window of the note to a process outside
@@ -96,22 +131,36 @@ export default class GhostwriterPlugin extends Plugin {
 }
 
 class GhostwriterSettingTab extends PluginSettingTab {
+  /** The model name as it was when the tab opened, so hide() can tell a real
+   *  change from a no-op. */
+  private modelAtOpen = "";
+
   constructor(app: App, private plugin: GhostwriterPlugin) { super(app, plugin); }
+
+  /** Text fields fire onChange per keystroke, so swapping weights there would
+   *  load and unload a model once per character typed into the name. The swap
+   *  waits until the tab closes instead. */
+  async hide() {
+    if (this.plugin.cfg.model === this.modelAtOpen) return;
+    await this.plugin.client.release();
+    if (this.plugin.cfg.enabled) await this.plugin.warmUp();
+  }
 
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
+    this.modelAtOpen = this.plugin.cfg.model;
 
     new Setting(containerEl)
       .setName("Enable in this vault")
       .setDesc("Off by default. Each completion sends surrounding note text to the model endpoint.")
       .addToggle((t) => t.setValue(this.plugin.cfg.enabled).onChange(async (v) => {
-        this.plugin.cfg.enabled = v; await this.plugin.saveSettings();
+        await this.plugin.setEnabled(v);
       }));
 
     new Setting(containerEl)
       .setName("Model")
-      .setDesc("qwen3:0.6b — 666 MB, 27-118 ms. Pull GGUF from HuggingFace with `ollama pull hf.co/<repo>`.")
+      .setDesc("Default: Qwen3.5-2B-Base, 1.6 GB resident. Pull GGUF from HuggingFace with `ollama pull hf.co/<repo>`.")
       .addText((t) => t.setValue(this.plugin.cfg.model).onChange(async (v) => {
         this.plugin.cfg.model = v.trim(); await this.plugin.saveSettings();
       }));
@@ -130,6 +179,16 @@ class GhostwriterSettingTab extends PluginSettingTab {
         if (Number.isFinite(n) && n >= 0) {
           this.plugin.cfg.debounceMs = n; await this.plugin.saveSettings();
         }
+      }));
+
+    new Setting(containerEl)
+      .setName("Keep model loaded")
+      .setDesc('-1 pins it while the vault is open. "10m" releases it after ten idle minutes. 0 loads it fresh every time.')
+      .addText((t) => t.setValue(String(this.plugin.cfg.keepAlive)).onChange(async (v) => {
+        const raw = v.trim();
+        if (!raw) return;
+        this.plugin.cfg.keepAlive = /^-?\d+$/.test(raw) ? Number(raw) : raw;
+        await this.plugin.saveSettings();
       }));
 
     new Setting(containerEl)
