@@ -71,3 +71,10 @@ curated LaTeX commands, which a 0.6B model will not beat.
 ## Licence
 
 MIT
+
+## Cleanup
+
+Teardown when this checkout is done: see [`CLEANUP.md`](CLEANUP.md) — it covers
+`node_modules/`, the built `main.js`, `finetune/`'s corpus/adapters/weights, the
+hub notes the clean commands deliberately keep, and the bits outside the repo
+(the vault plugin install, Ollama's store, npm's cache).
