@@ -5,3 +5,48 @@ Ghostwriter — Project Hub.md
 
 # graphify output — rebuilt with `graphify update .`, never versioned
 graphify-out/
+
+# --- cleanup pass (issue #1) — appended; nothing above was removed --------
+
+# Hub notes, in general: the literal `Ghostwriter — Project Hub.md` line above
+# is today's note; this covers the next one without editing this file again.
+# Ignored ≠ disposable — CLEANUP.md's clean commands exclude these on purpose.
+/*— *.md
+
+# OS and editor cruft (the file above had no OS/editor block at all)
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Credentials safety net — install.mjs reads OBSIDIAN_VAULT from the env,
+# so an env file is an easy local habit. Nothing here needs a key.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials.json
+secrets.json
+
+# Python scratch for finetune/ (build_corpus.py, compare*.py run under
+# plain python3; finetune/.gitignore covers data/adapters/models but has
+# none of the interpreter blocks)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# TypeScript incremental build info (`npm run typecheck` is --noEmit today)
+*.tsbuildinfo
+
+# Machine-local Claude Code settings
+.claude/settings.local.json
