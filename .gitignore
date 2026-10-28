@@ -50,3 +50,7 @@ htmlcov/
 
 # Machine-local Claude Code settings
 .claude/settings.local.json
+
+# Apple Foundation Models spike (issue #3) — local prefixes and run results, never versioned
+spike/apple-fm/prefixes.jsonl
+spike/apple-fm/results-*.jsonl
